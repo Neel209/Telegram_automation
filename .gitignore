@@ -1,0 +1,17 @@
+# Python virtual environment
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Local environment variables and secrets
+.env
+
+# Playwright session auth state (contains cookies)
+auth_state.json
+
+# Generated screenshots
+*.png
+nifty_15m_chart.png
+nifty_15m_auth_chart.png
+tradingview_screenshot.png
