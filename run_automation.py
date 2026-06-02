@@ -13,7 +13,7 @@ import requests
 CHARTS_CONFIG = [
     {
         "symbol": "NSE:NIFTY",
-        "name": "Nifty 50",
+        "name": "Nifty",
         "interval": "15",
         "output_filename": "nifty_15m_chart.png",
         "nse_holiday_check": True
@@ -37,6 +37,13 @@ CHARTS_CONFIG = [
         "name": "Silver (XAGUSD)",
         "interval": "60",
         "output_filename": "xagusd_1h_chart.png",
+        "nse_holiday_check": False
+    },
+    {
+        "symbol": "TVC:USOIL",
+        "name": "USOIL",
+        "interval": "60",
+        "output_filename": "usoil_1h_chart.png",
         "nse_holiday_check": False
     }
 ]
@@ -251,7 +258,7 @@ def send_to_telegram(photo_path, token, chat_id, chart_name, interval):
     # Formulate caption with date-time and custom instrument metadata
     now_ist = get_current_date_ist()
     friendly_interval = format_interval(interval)
-    caption = f"📊 *{chart_name} - {friendly_interval} Chart*\n📅 Date: {now_ist.strftime('%d-%b-%Y')}\n⏰ Time: {now_ist.strftime('%I:%M %p')} IST"
+    caption = f"📊 *{chart_name} Levels*\n📅 Date: {now_ist.strftime('%d-%b-%Y')}\n⏰ Timeframe: {friendly_interval}"
     
     print(f"📤 Uploading {chart_name} photo to Telegram chat: {chat_id}...")
     try:
