@@ -7,6 +7,40 @@ import json
 from playwright.sync_api import sync_playwright
 import requests
 
+# ----------------------------------------------------
+# Configuration for multiple charts
+# ----------------------------------------------------
+CHARTS_CONFIG = [
+    {
+        "symbol": "NSE:NIFTY",
+        "name": "Nifty 50",
+        "interval": "15",
+        "output_filename": "nifty_15m_chart.png",
+        "nse_holiday_check": True
+    },
+    {
+        "symbol": "NSE:BANKNIFTY",
+        "name": "Bank Nifty",
+        "interval": "15",
+        "output_filename": "banknifty_15m_chart.png",
+        "nse_holiday_check": True
+    },
+    {
+        "symbol": "OANDA:XAUUSD",
+        "name": "Gold (XAUUSD)",
+        "interval": "60",
+        "output_filename": "xauusd_1h_chart.png",
+        "nse_holiday_check": False
+    },
+    {
+        "symbol": "OANDA:XAGUSD",
+        "name": "Silver (XAGUSD)",
+        "interval": "60",
+        "output_filename": "xagusd_1h_chart.png",
+        "nse_holiday_check": False
+    }
+]
+
 def load_dotenv(dotenv_path=".env"):
     """
     Manually load key-value pairs from a .env file into os.environ.
@@ -33,23 +67,18 @@ def get_current_date_ist():
     ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
     return datetime.datetime.now(ist_offset)
 
-def check_should_run():
+def is_weekend(now_ist):
     """
-    Checks if today is a weekday and not an NSE market holiday.
-    Returns:
-        (bool, str): A tuple indicating (should_run, reason_message)
+    Returns True if today is Saturday (5) or Sunday (6).
     """
-    now_ist = get_current_date_ist()
-    
-    # 1. Weekend Check (Saturday = 5, Sunday = 6)
-    if now_ist.weekday() >= 5:
-        return False, f"Today ({now_ist.strftime('%Y-%m-%d')}) is a weekend ({now_ist.strftime('%A')})."
+    return now_ist.weekday() >= 5
 
-    # 2. Format today's date to match NSE holiday list: DD-Mmm-YYYY (e.g. '01-Jun-2026')
-    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    today_str = f"{now_ist.day:02d}-{months[now_ist.month - 1]}-{now_ist.year}"
-    
-    # 3. Fetch NSE Market Holidays
+def fetch_nse_holidays():
+    """
+    Fetches the NSE market holidays from the API.
+    Returns:
+        set: A set of date strings matching the format 'DD-Mmm-YYYY' (e.g. {'03-Jun-2026'}).
+    """
     url = "https://www.nseindia.com/api/holiday-master?type=trading"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -57,38 +86,24 @@ def check_should_run():
         'Referer': 'https://www.nseindia.com/'
     }
     
-    print(f"🔍 Fetching NSE market holidays to check for: {today_str}...")
+    print("🔍 Fetching NSE market holidays...")
     try:
         req = urllib.request.Request(url, headers=headers)
-        # Timeout after 10 seconds
         with urllib.request.urlopen(req, timeout=10) as response:
             data = json.loads(response.read().decode())
-            
-            # CM = Capital Market segment (normal stock trading)
             cm_holidays = data.get('CM', [])
-            holiday_dates = [h.get('tradingDate') for h in cm_holidays if h.get('tradingDate')]
-            
-            if today_str in holiday_dates:
-                # Find holiday description
-                desc = next((h.get('description') for h in cm_holidays if h.get('tradingDate') == today_str), "Market Holiday")
-                return False, f"Today ({today_str}) is a listed NSE market holiday: {desc}."
-            else:
-                return True, f"Today ({today_str}) is a valid weekday trading day."
-                
+            holiday_dates = {h.get('tradingDate') for h in cm_holidays if h.get('tradingDate')}
+            return holiday_dates
     except Exception as e:
         print(f"⚠️ Warning: Failed to fetch/parse NSE holidays from API ({e}).")
-        print("🛡️ Proceeding with automation assuming it is a trading day since it is a weekday.")
-        return True, "Weekday (could not verify NSE holidays, defaulted to run)."
+        print("🛡️ Proceeding assuming there are no NSE holidays today.")
+        return set()
 
-def capture_nifty_chart(output_path):
+def capture_charts(charts):
     """
-    Launch Playwright to capture TradingView Chart.
-    Restores session state if available.
+    Launch Playwright to capture TradingView Charts for the active configuration.
+    Restores session state if available. Runs in a single browser session for speed.
     """
-    symbol = os.getenv("SYMBOL", "NSE:NIFTY")
-    interval = os.getenv("INTERVAL", "60")
-    symbol_encoded = symbol.replace(":", "%3A")
-    url = f"https://www.tradingview.com/chart/?symbol={symbol_encoded}&interval={interval}"
     state_file = "auth_state.json"
     
     # Restoring from environment variable if set (useful for Github Actions secrets)
@@ -132,86 +147,113 @@ def capture_nifty_chart(output_path):
         context = browser.new_context(**context_args)
         page = context.new_page()
         
-        print(f"🗺️ Navigating to: {url}")
-        page.goto(url, wait_until="domcontentloaded")
-        
-        print(f"⏱️ Waiting {wait_seconds} seconds for chart to render fully...")
-        page.wait_for_timeout(wait_seconds * 1000)
-        
-        # Apply browser-level zoom/scale if configured (Option 2)
-        zoom_factor = os.getenv("BROWSER_ZOOM_FACTOR", "1.0")
-        if zoom_factor != "1.0":
-            print(f"🔍 Applying browser-level zoom: {zoom_factor}x")
-            try:
-                page.evaluate(f"document.body.style.zoom = '{zoom_factor}'")
-                # Wait 2 seconds for TradingView to recalculate layout dimensions and redraw the canvas
-                page.wait_for_timeout(2000)
-            except Exception as zoom_err:
-                print(f"⚠️ Warning: Failed to apply browser-level zoom ({zoom_err})")
-        
-        # Drag chart to the left if configured (panning to show right-side margin)
-        drag_left_px = int(os.getenv("CHART_DRAG_LEFT_PX", "0"))
-        if drag_left_px > 0:
-            print(f"↕️ Dragging chart to the left by {drag_left_px}px to adjust margin...")
-            try:
-                center_locator = page.locator('.layout__area--center').first
-                box = center_locator.bounding_box()
-                if box:
-                    start_x = box['x'] + box['width'] / 2
-                    start_y = box['y'] + box['height'] / 2
-                    page.mouse.move(start_x, start_y)
-                    page.mouse.down()
-                    page.mouse.move(start_x - drag_left_px, start_y, steps=10)
-                    page.mouse.up()
-                    # Wait 1.5 seconds for the chart to finish panning and settle
-                    page.wait_for_timeout(1500)
-            except Exception as drag_err:
-                print(f"⚠️ Warning: Failed to drag chart ({drag_err})")
-        
-        # Try to dismiss any cookie notices or promotional dialogs
-        try:
-            close_buttons = page.query_selector_all("button[class*='close'], [class*='dialog'] button")
-            for btn in close_buttons:
-                if btn.is_visible():
-                    print("🧹 Closing active overlay or popup...")
-                    btn.click()
-                    page.wait_for_timeout(1000)
-        except Exception as overlay_err:
-            print(f"ℹ️ No overlays detected or failed to close: {overlay_err}")
+        for chart in charts:
+            symbol = chart["symbol"]
+            interval = chart["interval"]
+            symbol_encoded = symbol.replace(":", "%3A")
+            url = f"https://www.tradingview.com/chart/?symbol={symbol_encoded}&interval={interval}"
+            output_path = os.path.abspath(chart["output_filename"])
             
-        # Get screenshot selector from environment (default to close view of the chart)
-        screenshot_selector = os.getenv("SCREENSHOT_SELECTOR", ".layout__area--center")
-        
-        if screenshot_selector and screenshot_selector.lower() != "viewport":
-            print(f"📸 Capturing close-up view of element '{screenshot_selector}'...")
+            print(f"\n📈 Processing: {chart['name']} ({symbol}) at interval {interval}...")
+            print(f"🗺️ Navigating to: {url}")
+            page.goto(url, wait_until="domcontentloaded")
+            
+            print(f"⏱️ Waiting {wait_seconds} seconds for chart to render fully...")
+            page.wait_for_timeout(wait_seconds * 1000)
+            
+            # Apply browser-level zoom/scale if configured
+            zoom_factor = os.getenv("BROWSER_ZOOM_FACTOR", "1.0")
+            if zoom_factor != "1.0":
+                print(f"🔍 Applying browser-level zoom: {zoom_factor}x")
+                try:
+                    page.evaluate(f"document.body.style.zoom = '{zoom_factor}'")
+                    # Wait 2 seconds for TradingView to recalculate layout dimensions and redraw the canvas
+                    page.wait_for_timeout(2000)
+                except Exception as zoom_err:
+                    print(f"⚠️ Warning: Failed to apply browser-level zoom ({zoom_err})")
+            
+            # Drag chart to the left if configured (panning to show right-side margin)
+            drag_left_px = int(os.getenv("CHART_DRAG_LEFT_PX", "0"))
+            if drag_left_px > 0:
+                print(f"↕️ Dragging chart to the left by {drag_left_px}px to adjust margin...")
+                try:
+                    center_locator = page.locator('.layout__area--center').first
+                    box = center_locator.bounding_box()
+                    if box:
+                        start_x = box['x'] + box['width'] / 2
+                        start_y = box['y'] + box['height'] / 2
+                        page.mouse.move(start_x, start_y)
+                        page.mouse.down()
+                        page.mouse.move(start_x - drag_left_px, start_y, steps=10)
+                        page.mouse.up()
+                        # Wait 1.5 seconds for the chart to finish panning and settle
+                        page.wait_for_timeout(1500)
+                except Exception as drag_err:
+                    print(f"⚠️ Warning: Failed to drag chart ({drag_err})")
+            
+            # Try to dismiss any cookie notices or promotional dialogs
             try:
-                # Wait for the selector to be attached/visible
-                page.wait_for_selector(screenshot_selector, timeout=10000)
-                page.locator(screenshot_selector).first.screenshot(path=output_path)
-                print("💾 Close-up element screenshot captured successfully.")
-            except Exception as sel_err:
-                print(f"⚠️ Warning: Failed to capture selector '{screenshot_selector}' ({sel_err}).")
-                print("Falling back to full page screenshot.")
+                close_buttons = page.query_selector_all("button[class*='close'], [class*='dialog'] button")
+                for btn in close_buttons:
+                    if btn.is_visible():
+                        print("🧹 Closing active overlay or popup...")
+                        btn.click()
+                        page.wait_for_timeout(1000)
+            except Exception as overlay_err:
+                print(f"ℹ️ No overlays detected or failed to close: {overlay_err}")
+                
+            # Get screenshot selector from environment
+            screenshot_selector = os.getenv("SCREENSHOT_SELECTOR", "viewport")
+            
+            if screenshot_selector and screenshot_selector.lower() != "viewport":
+                print(f"📸 Capturing close-up view of element '{screenshot_selector}'...")
+                try:
+                    page.wait_for_selector(screenshot_selector, timeout=10000)
+                    page.locator(screenshot_selector).first.screenshot(path=output_path)
+                    print(f"💾 Close-up element screenshot captured successfully to {chart['output_filename']}.")
+                except Exception as sel_err:
+                    print(f"⚠️ Warning: Failed to capture selector '{screenshot_selector}' ({sel_err}).")
+                    print("Falling back to full page screenshot.")
+                    page.screenshot(path=output_path)
+                    print(f"💾 Full page screenshot captured successfully (fallback) to {chart['output_filename']}.")
+            else:
+                print(f"📸 Capturing full-page view...")
                 page.screenshot(path=output_path)
-                print("💾 Full page screenshot captured successfully (fallback).")
-        else:
-            print(f"📸 Capturing full-page view...")
-            page.screenshot(path=output_path)
-            print("💾 Full page screenshot captured successfully.")
+                print(f"💾 Full page screenshot captured successfully to {chart['output_filename']}.")
         
         browser.close()
 
-def send_to_telegram(photo_path, token, chat_id):
+def format_interval(interval_str):
+    """
+    Format the interval string to a user-friendly format (e.g. '15' -> '15 Minute', '60' -> '1 Hour').
+    """
+    if interval_str.isdigit():
+        mins = int(interval_str)
+        if mins >= 60:
+            hours = mins / 60
+            if hours.is_integer():
+                return f"{int(hours)} Hour"
+            return f"{hours} Hour"
+        return f"{mins} Minute"
+    else:
+        if interval_str.upper() == "D":
+            return "Daily"
+        if interval_str.upper() == "W":
+            return "Weekly"
+        return interval_str
+
+def send_to_telegram(photo_path, token, chat_id, chart_name, interval):
     """
     Post photo screenshot to Telegram via Bot API.
     """
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
     
-    # Formulate caption with date-time
+    # Formulate caption with date-time and custom instrument metadata
     now_ist = get_current_date_ist()
-    caption = f"📊 *Nifty 50 - 15 Minute Chart*\n📅 Date: {now_ist.strftime('%d-%b-%Y')}\n⏰ Time: {now_ist.strftime('%I:%M %p')} IST"
+    friendly_interval = format_interval(interval)
+    caption = f"📊 *{chart_name} - {friendly_interval} Chart*\n📅 Date: {now_ist.strftime('%d-%b-%Y')}\n⏰ Time: {now_ist.strftime('%I:%M %p')} IST"
     
-    print(f"📤 Uploading photo to Telegram chat: {chat_id}...")
+    print(f"📤 Uploading {chart_name} photo to Telegram chat: {chat_id}...")
     try:
         with open(photo_path, "rb") as photo_file:
             files = {"photo": photo_file}
@@ -223,14 +265,14 @@ def send_to_telegram(photo_path, token, chat_id):
             response = requests.post(url, files=files, data=data, timeout=30)
             
         if response.status_code == 200:
-            print("✅ Telegram notification sent successfully!")
+            print(f"✅ Telegram notification for {chart_name} sent successfully!")
             return True
         else:
-            print(f"❌ Failed to send Telegram notification. Status: {response.status_code}")
+            print(f"❌ Failed to send Telegram notification for {chart_name}. Status: {response.status_code}")
             print(f"Response: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error sending Telegram notification: {e}")
+        print(f"❌ Error sending Telegram notification for {chart_name}: {e}")
         return False
 
 def main():
@@ -239,42 +281,72 @@ def main():
     # 1. Load configuration
     load_dotenv()
     
-    # 2. Check scheduled run conditions
-    should_run, reason = check_should_run()
-    if not should_run:
-        print(f"⏭️ {reason}")
-        print("=== AUTOMATION BYPASSED SUCCESSFULLY ===")
-        sys.exit(0)
-    
-    print(f"✅ Run check passed: {reason}")
-    
-    # 3. Retrieve secrets
+    # 2. Retrieve secrets
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
     telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
     
     if not telegram_token or not telegram_chat_id or "PLACEHOLDER" in telegram_token or "PLACEHOLDER" in telegram_chat_id:
         print("❌ Error: Missing or default placeholder TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID in environment variables.")
-        print("Please configure your actual Telegram credentials in your .env file or GitHub repository Secrets.")
         sys.exit(1)
         
-    # 4. Run screenshot capture
-    output_filename = os.getenv("CHART_OUTPUT_FILENAME", "nifty_1h_chart.png")
-    output_path = os.path.abspath(output_filename)
+    now_ist = get_current_date_ist()
     
+    # 3. Weekend Check (applies to all markets)
+    if is_weekend(now_ist):
+        print(f"⏭️ Today ({now_ist.strftime('%Y-%m-%d')}) is a weekend ({now_ist.strftime('%A')}). Bypassing all automations.")
+        print("=== AUTOMATION BYPASSED SUCCESSFULLY ===")
+        sys.exit(0)
+    
+    # 4. Filter active charts based on holiday rules
+    nse_holidays = None
+    charts_to_run = []
+    
+    # Format today's date to match NSE holiday list: DD-Mmm-YYYY (e.g. '01-Jun-2026')
+    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    today_str = f"{now_ist.day:02d}-{months[now_ist.month - 1]}-{now_ist.year}"
+    
+    for chart in CHARTS_CONFIG:
+        if chart.get("nse_holiday_check", False):
+            if nse_holidays is None:
+                nse_holidays = fetch_nse_holidays()
+            
+            if today_str in nse_holidays:
+                print(f"⏭️ Skipping {chart['name']} ({chart['symbol']}) - today is an NSE market holiday.")
+                continue
+        
+        charts_to_run.append(chart)
+        
+    if not charts_to_run:
+        print("⏭️ No charts left to capture today.")
+        print("=== AUTOMATION BYPASSED SUCCESSFULLY ===")
+        sys.exit(0)
+        
+    print(f"✅ Active charts to capture: {[c['name'] for c in charts_to_run]}")
+    
+    # 5. Run screenshot capture
     try:
-        capture_nifty_chart(output_path)
+        capture_charts(charts_to_run)
     except Exception as e:
         print(f"❌ Error during chart capture: {e}")
         sys.exit(1)
         
-    # 5. Send notification
-    success = send_to_telegram(output_path, telegram_token, telegram_chat_id)
-    
-    if success:
+    # 6. Send notifications
+    failures = 0
+    for chart in charts_to_run:
+        output_path = os.path.abspath(chart["output_filename"])
+        if os.path.exists(output_path):
+            success = send_to_telegram(output_path, telegram_token, telegram_chat_id, chart["name"], chart["interval"])
+            if not success:
+                failures += 1
+        else:
+            print(f"❌ Error: Screenshot file for {chart['name']} was not created.")
+            failures += 1
+            
+    if failures == 0:
         print("=== NIFTY CHART AUTOMATION COMPLETE ===")
         sys.exit(0)
     else:
-        print("=== NIFTY CHART AUTOMATION FAILED ===")
+        print(f"=== NIFTY CHART AUTOMATION COMPLETED WITH {failures} FAILURES ===")
         sys.exit(1)
 
 if __name__ == "__main__":
