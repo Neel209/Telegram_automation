@@ -356,15 +356,19 @@ def main():
         
     # 6. Send notifications
     failures = 0
+    # Split by comma to support multiple channels
+    chat_ids = [cid.strip() for cid in telegram_chat_id.split(",") if cid.strip()]
+    
     for chart in charts_to_run:
         output_path = os.path.abspath(chart["output_filename"])
         if os.path.exists(output_path):
             if test_mode:
                 print(f"🧪 [TEST_MODE] Skipping Telegram send for {chart['name']}. Screenshot saved at: {output_path}")
             else:
-                success = send_to_telegram(output_path, telegram_token, telegram_chat_id, chart["name"], chart["interval"])
-                if not success:
-                    failures += 1
+                for chat_id in chat_ids:
+                    success = send_to_telegram(output_path, telegram_token, chat_id, chart["name"], chart["interval"])
+                    if not success:
+                        failures += 1
         else:
             print(f"❌ Error: Screenshot file for {chart['name']} was not created.")
             failures += 1
