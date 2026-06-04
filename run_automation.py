@@ -26,21 +26,21 @@ CHARTS_CONFIG = [
         "nse_holiday_check": True
     },
     {
-        "symbol": "OANDA:XAUUSD",
+        "symbol": "FOREXCOM:XAUUSD",
         "name": "Gold (XAUUSD)",
         "interval": "60",
         "output_filename": "xauusd_1h_chart.png",
         "nse_holiday_check": False
     },
     {
-        "symbol": "OANDA:XAGUSD",
+        "symbol": "CAPITALCOM:XAGUSD",
         "name": "Silver (XAGUSD)",
         "interval": "60",
         "output_filename": "xagusd_1h_chart.png",
         "nse_holiday_check": False
     },
     {
-        "symbol": "TVC:USOIL",
+        "symbol": "CXM:USOIL",
         "name": "USOIL",
         "interval": "60",
         "output_filename": "usoil_1h_chart.png",
@@ -63,7 +63,8 @@ def load_dotenv(dotenv_path=".env"):
                     # Strip spaces and optional quotes around values
                     key = key.strip()
                     val = val.strip().strip("'").strip('"')
-                    os.environ[key] = val
+                    if key not in os.environ:
+                        os.environ[key] = val
     else:
         print("ℹ️ No local .env file found. Reading environment variables from system/runner context.")
 
@@ -184,17 +185,28 @@ def capture_charts(charts):
             if drag_left_px > 0:
                 print(f"↕️ Dragging chart to the left by {drag_left_px}px to adjust margin...")
                 try:
+                    # Default coordinates to middle of viewport
+                    start_x = viewport_width / 2
+                    start_y = viewport_height / 2
+                    
                     center_locator = page.locator('.layout__area--center').first
-                    box = center_locator.bounding_box()
-                    if box:
-                        start_x = box['x'] + box['width'] / 2
-                        start_y = box['y'] + box['height'] / 2
-                        page.mouse.move(start_x, start_y)
-                        page.mouse.down()
-                        page.mouse.move(start_x - drag_left_px, start_y, steps=10)
-                        page.mouse.up()
-                        # Wait 1.5 seconds for the chart to finish panning and settle
-                        page.wait_for_timeout(1500)
+                    if center_locator.is_visible():
+                        box = center_locator.bounding_box()
+                        if box:
+                            start_x = box['x'] + box['width'] / 2
+                            start_y = box['y'] + box['height'] / 2
+                    
+                    # Perform drag with focus click and micro-delays
+                    page.mouse.move(start_x, start_y)
+                    page.mouse.click(start_x, start_y)
+                    page.wait_for_timeout(200)
+                    page.mouse.down()
+                    page.wait_for_timeout(200)
+                    page.mouse.move(start_x - drag_left_px, start_y, steps=25)
+                    page.wait_for_timeout(200)
+                    page.mouse.up()
+                    # Wait 1.5 seconds for the chart to finish panning and settle
+                    page.wait_for_timeout(1500)
                 except Exception as drag_err:
                     print(f"⚠️ Warning: Failed to drag chart ({drag_err})")
             
@@ -288,11 +300,16 @@ def main():
     # 1. Load configuration
     load_dotenv()
     
+    # Check if test mode is enabled
+    test_mode = os.getenv("TEST_MODE", "false").lower() == "true"
+    if test_mode:
+        print("🧪 Running in TEST_MODE. Screenshots will be saved locally. Telegram notifications are disabled.")
+    
     # 2. Retrieve secrets
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
     telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
     
-    if not telegram_token or not telegram_chat_id or "PLACEHOLDER" in telegram_token or "PLACEHOLDER" in telegram_chat_id:
+    if not test_mode and (not telegram_token or not telegram_chat_id or "PLACEHOLDER" in telegram_token or "PLACEHOLDER" in telegram_chat_id):
         print("❌ Error: Missing or default placeholder TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID in environment variables.")
         sys.exit(1)
         
@@ -342,9 +359,12 @@ def main():
     for chart in charts_to_run:
         output_path = os.path.abspath(chart["output_filename"])
         if os.path.exists(output_path):
-            success = send_to_telegram(output_path, telegram_token, telegram_chat_id, chart["name"], chart["interval"])
-            if not success:
-                failures += 1
+            if test_mode:
+                print(f"🧪 [TEST_MODE] Skipping Telegram send for {chart['name']}. Screenshot saved at: {output_path}")
+            else:
+                success = send_to_telegram(output_path, telegram_token, telegram_chat_id, chart["name"], chart["interval"])
+                if not success:
+                    failures += 1
         else:
             print(f"❌ Error: Screenshot file for {chart['name']} was not created.")
             failures += 1
