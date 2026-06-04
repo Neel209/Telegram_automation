@@ -1,11 +1,8 @@
 name: Daily Nifty Chart Automation
 
 on:
-  schedule:
-    # 9:00 AM IST is 3:30 AM UTC.
-    # Run at 03:30 UTC Monday through Friday.
-    - cron: '30 3 * * 1-5'
-  workflow_dispatch: # Allows manual trigger from GitHub UI for testing
+  workflow_dispatch: # Allows manual trigger or API trigger from external cron
+
 
 jobs:
   run-automation:
