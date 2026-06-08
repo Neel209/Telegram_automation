@@ -6,7 +6,12 @@ def capture_nifty_chart_with_auth():
     state_file = "auth_state.json"
     output_filename = "nifty_15m_auth_chart.png"
     output_path = os.path.abspath(output_filename)
-    url = "https://www.tradingview.com/chart/?symbol=NSE%3ANIFTY&interval=15"
+    
+    layout_id = os.getenv("TRADINGVIEW_LAYOUT_ID", "").strip()
+    if layout_id:
+        url = f"https://www.tradingview.com/chart/{layout_id}/?symbol=NSE%3ANIFTY&interval=15"
+    else:
+        url = "https://www.tradingview.com/chart/?symbol=NSE%3ANIFTY&interval=15"
     
     # Check if the user has saved their session first
     if not os.path.exists(state_file):

@@ -155,11 +155,16 @@ def capture_charts(charts):
         context = browser.new_context(**context_args)
         page = context.new_page()
         
+        layout_id = os.getenv("TRADINGVIEW_LAYOUT_ID", "").strip()
+        
         for chart in charts:
             symbol = chart["symbol"]
             interval = chart["interval"]
             symbol_encoded = symbol.replace(":", "%3A")
-            url = f"https://www.tradingview.com/chart/?symbol={symbol_encoded}&interval={interval}"
+            if layout_id:
+                url = f"https://www.tradingview.com/chart/{layout_id}/?symbol={symbol_encoded}&interval={interval}"
+            else:
+                url = f"https://www.tradingview.com/chart/?symbol={symbol_encoded}&interval={interval}"
             output_path = os.path.abspath(chart["output_filename"])
             
             print(f"\n📈 Processing: {chart['name']} ({symbol}) at interval {interval}...")
@@ -180,16 +185,37 @@ def capture_charts(charts):
                 except Exception as zoom_err:
                     print(f"⚠️ Warning: Failed to apply browser-level zoom ({zoom_err})")
             
+            # Focus the chart and reset the scale/zoom to default (Alt + r)
+            print("🔄 Resetting chart zoom and scale (Alt + r)...")
+            try:
+                # Default coordinates to middle of viewport
+                start_x = viewport_width / 2
+                start_y = viewport_height / 2
+                
+                center_locator = page.locator('.layout__area--center').first
+                if center_locator.is_visible():
+                    box = center_locator.bounding_box()
+                    if box:
+                        start_x = box['x'] + box['width'] / 2
+                        start_y = box['y'] + box['height'] / 2
+                
+                # Perform focus click
+                page.mouse.click(start_x, start_y)
+                page.wait_for_timeout(500)
+                page.keyboard.press("Alt+r")
+                # Wait 1.5 seconds for the zoom reset to apply and layout to redraw
+                page.wait_for_timeout(1500)
+            except Exception as reset_err:
+                print(f"⚠️ Warning: Failed to reset chart view ({reset_err})")
+            
             # Drag chart to the left if configured (panning to show right-side margin)
             drag_left_px = int(os.getenv("CHART_DRAG_LEFT_PX", "0"))
             if drag_left_px > 0:
                 print(f"↕️ Dragging chart to the left by {drag_left_px}px to adjust margin...")
                 try:
-                    # Default coordinates to middle of viewport
+                    # Reuse center coordinates from focus step
                     start_x = viewport_width / 2
                     start_y = viewport_height / 2
-                    
-                    center_locator = page.locator('.layout__area--center').first
                     if center_locator.is_visible():
                         box = center_locator.bounding_box()
                         if box:
