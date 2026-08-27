@@ -29,7 +29,8 @@ jobs:
 
       - name: Run Automation Script
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          PLAYWRIGHT_AUTH_STATE: ${{ secrets.PLAYWRIGHT_AUTH_STATE }}
+            TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+            TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+            PLAYWRIGHT_AUTH_STATE: ${{ secrets.PLAYWRIGHT_AUTH_STATE }}
+            TRADINGVIEW_LAYOUT_ID: ${{ secrets.TRADINGVIEW_LAYOUT_ID || 'mVnx2KwJ' }}
         run: python run_automation.py

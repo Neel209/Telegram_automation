@@ -142,20 +142,37 @@ def capture_charts(charts):
 
     print("🚀 Launching Chromium browser...")
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled"]
+        )
         
         # Define browser context configuration
         context_args = {
             "viewport": {"width": viewport_width, "height": viewport_height},
+            "color_scheme": "dark",
             "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         }
         if has_auth:
             context_args["storage_state"] = state_file
 
         context = browser.new_context(**context_args)
+        
+        # Force dark theme & stealth via cookies and localStorage
+        context.add_cookies([
+            {"name": "theme", "value": "dark", "domain": ".tradingview.com", "path": "/"},
+            {"name": "theme_mode", "value": "dark", "domain": ".tradingview.com", "path": "/"}
+        ])
+        context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            window.localStorage.setItem('theme', 'dark');
+            window.localStorage.setItem('tradingview.current_theme.name', 'dark');
+            window.localStorage.setItem('theme_mode', 'dark');
+        """)
+        
         page = context.new_page()
         
-        layout_id = os.getenv("TRADINGVIEW_LAYOUT_ID", "").strip()
+        layout_id = os.getenv("TRADINGVIEW_LAYOUT_ID", "mVnx2KwJ").strip()
         
         for chart in charts:
             symbol = chart["symbol"]
@@ -236,14 +253,20 @@ def capture_charts(charts):
                 except Exception as drag_err:
                     print(f"⚠️ Warning: Failed to drag chart ({drag_err})")
             
-            # Try to dismiss any cookie notices or promotional dialogs
+            # Try to dismiss any cookie notices or promotional dialogs / onboarding tooltips
             try:
+                page.keyboard.press("Escape")
                 close_buttons = page.query_selector_all("button[class*='close'], [class*='dialog'] button")
                 for btn in close_buttons:
                     if btn.is_visible():
                         print("🧹 Closing active overlay or popup...")
                         btn.click()
-                        page.wait_for_timeout(1000)
+                        page.wait_for_timeout(500)
+                page.evaluate("""() => {
+                    document.querySelectorAll('button').forEach(b => {
+                        if (b.textContent.includes('Got it') || b.textContent.includes('Dismiss')) b.click();
+                    });
+                }""")
             except Exception as overlay_err:
                 print(f"ℹ️ No overlays detected or failed to close: {overlay_err}")
                 

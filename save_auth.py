@@ -31,6 +31,15 @@ def save_tradingview_session():
         input("\n👇 STEP 1: Log in on the browser window.\n👇 STEP 2: Once you see your charts/levels loaded, press [ENTER] here in this terminal to save your session...")
         
         # Save cookies and local storage to a file
+        context.add_cookies([
+            {"name": "theme", "value": "dark", "domain": ".tradingview.com", "path": "/"},
+            {"name": "theme_mode", "value": "dark", "domain": ".tradingview.com", "path": "/"}
+        ])
+        page.evaluate("""() => {
+            window.localStorage.setItem('theme', 'dark');
+            window.localStorage.setItem('tradingview.current_theme.name', 'dark');
+            window.localStorage.setItem('theme_mode', 'dark');
+        }""")
         context.storage_state(path=state_file)
         print(f"\n💾 Success! Session state saved to: {os.path.abspath(state_file)}")
         
