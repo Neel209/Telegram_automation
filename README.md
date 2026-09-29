@@ -48,7 +48,6 @@ An automated market intelligence pipeline built with **Python**, **Playwright**,
 │   ├── nifty_15m_chart.png
 │   ├── banknifty_15m_chart.png
 │   └── xauusd_1h_chart.png
-├── .env.example              # Environment variables template
 ├── .gitignore                # Git ignore rules for secrets and temp files
 ├── requirements.txt          # Python dependencies
 ├── run_automation.py         # Main execution pipeline
@@ -78,10 +77,14 @@ playwright install chromium
 ```
 
 ### 4. Configure Environment Variables
-Copy `.env.example` to `.env` and fill in your details:
-```bash
-cp .env.example .env
+Create a `.env` file in the root directory and add the following keys:
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_CHAT_ID=your_chat_id_here
+TRADINGVIEW_LAYOUT_ID=your_layout_id_here
+TEST_MODE=false
 ```
+
 
 | Variable | Description |
 | :--- | :--- |
