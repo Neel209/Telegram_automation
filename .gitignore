@@ -6,12 +6,12 @@ __pycache__/
 
 # Local environment variables and secrets
 .env
+.env.local
 
 # Playwright session auth state (contains cookies)
 auth_state.json
 
-# Generated screenshots
-*.png
-nifty_15m_chart.png
-nifty_15m_auth_chart.png
-tradingview_screenshot.png
+# Local runtime generated root screenshots (ignore root-level pngs only)
+/*.png
+!screenshots/*.png
+
